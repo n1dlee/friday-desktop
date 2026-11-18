@@ -1,0 +1,73 @@
+name: Signed Windows release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Signed update channel
+        type: choice
+        options: [beta, stable]
+        default: beta
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  windows-x64:
+    runs-on: windows-2025
+    environment: friday-${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26.13.1"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: rustup toolchain install 1.100.0 --profile minimal
+      - name: UI checks
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
+      - run: cargo test --locked --workspace --features friday-desktop/custom-protocol
+      - name: Build signed installer and manifest
+        env:
+          FRIDAY_UPDATE_ENDPOINT: ${{ vars.FRIDAY_UPDATE_ENDPOINT }}
+          FRIDAY_UPDATER_PUBLIC_KEY: ${{ vars.FRIDAY_UPDATER_PUBLIC_KEY }}
+          FRIDAY_SIGNING_PFX: ${{ secrets.FRIDAY_SIGNING_PFX }}
+          FRIDAY_SIGNING_PFX_PASSWORD: ${{ secrets.FRIDAY_SIGNING_PFX_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          FRIDAY_RELEASE_ASSET_BASE: ${{ vars.FRIDAY_RELEASE_ASSET_BASE }}
+        run: ./scripts/build-signed-windows.ps1
+      - name: Snapshot dependency inputs
+        shell: pwsh
+        run: |
+          Copy-Item Cargo.lock release-windows/Cargo.lock
+          Copy-Item apps/desktop/package-lock.json release-windows/package-lock.json
+          Push-Location apps/desktop
+          try {
+            npm sbom --sbom-format cyclonedx | Set-Content -Encoding utf8 ../../release-windows/npm.cyclonedx.json
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript SBOM failed" }
+          } finally { Pop-Location }
+      - name: Generate Rust SBOM
+        shell: pwsh
+        run: |
+          cargo install --locked --version 0.5.10 cargo-cyclonedx
+          if ($LASTEXITCODE -ne 0) { throw "Unable to install Cargo SBOM tool" }
+          cargo cyclonedx --format json --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Rust SBOM failed" }
+          Get-ChildItem crates,apps -Recurse -File -Filter "*.cdx.json" |
+            ForEach-Object { Copy-Item $_.FullName release-windows }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Friday-Windows-x64-${{ inputs.channel }}
+          path: release-windows/
+          if-no-files-found: error

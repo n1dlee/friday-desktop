@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local Friday panel",
+  "windows": ["main"],
+  "permissions": [
+    "allow-bootstrap",
+    "allow-observe-state",
+    "allow-submit",
+    "allow-finish-capture",
+    "allow-cancel-turn",
+    "allow-update-settings",
+    "allow-set-groq-key",
+    "allow-delete-groq-key",
+    "allow-load-history",
+    "allow-clear-history",
+    "allow-diagnostics",
+    "allow-check-update",
+    "allow-install-update"
+  ]
+}

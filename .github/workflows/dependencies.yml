@@ -1,0 +1,37 @@
+name: Dependency review
+
+on:
+  schedule:
+    - cron: "23 6 * * 2"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - Cargo.lock
+      - apps/desktop/package.json
+      - apps/desktop/package-lock.json
+      - deny.toml
+      - .github/workflows/dependencies.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "26.13.1"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: rustup toolchain install 1.100.0 --profile minimal
+      - run: cargo install --locked --version 0.21.0 cargo-deny
+      - name: Check the dependency graph shipped on Windows
+        run: cargo deny --locked --target x86_64-pc-windows-msvc check advisories licenses sources
+      - name: Check the dependency graph built on Linux
+        run: cargo deny --locked --target x86_64-unknown-linux-gnu check advisories licenses sources
+      - name: Check JavaScript advisories
+        working-directory: apps/desktop
+        run: npm audit --audit-level=high
